@@ -144,43 +144,63 @@ class CodingAssistant:
 
     def process_query(self, query):
         print("\n🤖 Understanding your request...")
+        attempt = 1
+        max_retries = 3
+        last_error = None
         
-        self.client.beta.threads.messages.create(
-            thread_id=self.thread.id,
-            role="user",
-            content=query
-        )
-
-        run = self.client.beta.threads.runs.create(
-            thread_id=self.thread.id,
-            assistant_id=self.assistant.id
-        )
-
-        while True:
-            run = self.client.beta.threads.runs.retrieve(
-                thread_id=self.thread.id,
-                run_id=run.id
-            )
-
-            if run.status == "requires_action":
-                print("⚙️ Executing commands...")
-                tool_outputs = self.handle_tool_calls(
-                    run.required_action.submit_tool_outputs.tool_calls
-                )
-                run = self.client.beta.threads.runs.submit_tool_outputs(
+        while attempt <= max_retries:
+            if attempt > 1:
+                print(f"\n🔄 Attempt {attempt}/{max_retries} - Retrying due to: {last_error}")
+                # Add context about the previous failure to the query
+                query = f"""Previous attempt failed with error: {last_error}
+                Please try again with a different approach.
+                Original query: {query}"""
+            
+            try:
+                self.client.beta.threads.messages.create(
                     thread_id=self.thread.id,
-                    run_id=run.id,
-                    tool_outputs=tool_outputs
+                    role="user",
+                    content=query
                 )
-            elif run.status == "completed":
-                messages = self.client.beta.threads.messages.list(
-                    thread_id=self.thread.id
+
+                run = self.client.beta.threads.runs.create(
+                    thread_id=self.thread.id,
+                    assistant_id=self.assistant.id
                 )
-                print("✅ Done!")
-                return messages.data[0].content[0].text.value
-            elif run.status in ["failed", "cancelled", "expired"]:
-                print("❌ Error occurred!")
-                return f"Error: Run {run.status}"
+
+                while True:
+                    run = self.client.beta.threads.runs.retrieve(
+                        thread_id=self.thread.id,
+                        run_id=run.id
+                    )
+
+                    if run.status == "requires_action":
+                        print("⚙️ Executing commands...")
+                        tool_outputs = self.handle_tool_calls(
+                            run.required_action.submit_tool_outputs.tool_calls
+                        )
+                        run = self.client.beta.threads.runs.submit_tool_outputs(
+                            thread_id=self.thread.id,
+                            run_id=run.id,
+                            tool_outputs=tool_outputs
+                        )
+                    elif run.status == "completed":
+                        messages = self.client.beta.threads.messages.list(
+                            thread_id=self.thread.id
+                        )
+                        print("✅ Done!")
+                        return messages.data[0].content[0].text.value
+                    elif run.status in ["failed", "cancelled", "expired"]:
+                        last_error = f"Run {run.status}"
+                        raise Exception(last_error)
+
+            except Exception as e:
+                last_error = str(e)
+                if attempt == max_retries:
+                    print(f"❌ Failed after {max_retries} attempts. Last error: {last_error}")
+                    return f"Error: Operation failed after {max_retries} attempts. Last error: {last_error}"
+                attempt += 1
+                continue
 
     def start(self):
         print(f"\n📂 Root directory set to: {self.root_directory}")
