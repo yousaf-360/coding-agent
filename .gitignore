@@ -1,0 +1,8 @@
+# Ignore virtual environments
+venv/
+
+# Ignore environment configuration file
+.env
+
+# Ignore documentation file
+docs.md
